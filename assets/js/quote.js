@@ -41,6 +41,15 @@
   });
   [sel, months, persons].forEach(function (el) { el.addEventListener('input', render); el.addEventListener('change', render); });
   render();
+  if (window.WelhanAPI) WelhanAPI.pub().then(function (d) {   // admin-edited prices (Google Sheets backend)
+    if (!d || !d.prices) return;
+    var keep = sel.value; D.rate = rate = d.prices.rate; D.providers = P = d.prices.providers; D.features = d.prices.features;
+    if (!qs.get('rate')) { /* rate from the comparison link wins; otherwise use the admin rate */ }
+    $('q-rate').textContent = rate;
+    sel.innerHTML = P.map(function (p) { return '<option value="' + esc(p.name) + '">' + esc(p.name) + ' – ' + esc(p.plan) + '</option>'; }).join('');
+    sel.value = keep; if (!sel.value) sel.selectedIndex = 0;
+    render();
+  });
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();
@@ -53,9 +62,8 @@
     fields['Estimated total (NPR)'] = N(c.npr);
     fields['Exchange rate used'] = '1 AUD = ' + rate + ' NPR';
     var btn = form.querySelector('button'); btn.disabled = true;
-    fetch('api/submit.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'quote', subject: 'OSHC quote – ' + cur.name, _hp: form.elements._hp.value, fields: fields }) })
-      .then(function (r) { return r.json(); })
+    var req = (window.WelhanAPI && WelhanAPI.enabled) ? WelhanAPI.submit({ type: 'quote', subject: 'OSHC quote – ' + cur.name, _hp: form.elements._hp.value, fields: fields }) : Promise.reject(new Error('no backend'));
+    req
       .then(function (j) {
         if (!j.ok) { var se = new Error(j.error || 'Failed'); se.server = true; throw se; }
         ok.textContent = 'Thank you! Your quote request (ref ' + j.id + ') has been received. Our team will contact you shortly.';

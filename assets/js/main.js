@@ -125,7 +125,7 @@
     go(0); restart();
   }
 
-  /* ---------- Forms: saved to the admin dashboard (api/submit.php); falls back to email ---------- */
+  /* ---------- Forms: saved to Google Sheets via the backend (if configured); otherwise opens the visitor's email app ---------- */
   var TYPES = { 'Website enquiry': 'contact', 'PTE Coaching booking': 'pte', 'Student Discount Application': 'discount', 'Refund request': 'refund' };
   $$('form[data-mailto]').forEach(function (f) {
     f.addEventListener('submit', function (e) {
@@ -137,28 +137,27 @@
         if (el.name && el.value) { fields[el.name] = el.value; lines.push(el.name + ': ' + el.value); }
       });
       var ok = $('.form-ok', f), btn = $('button', f);
+      function viaEmail() {
+        window.location.href = 'mailto:' + to + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\n'));
+        if (ok) { ok.textContent = 'Your email app should open to send this enquiry.'; ok.style.display = 'block'; }
+      }
+      if (!window.WelhanAPI || !WelhanAPI.enabled) { viaEmail(); return; }
       if (btn) btn.disabled = true;
-      fetch('api/submit.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: TYPES[subject] || 'other', subject: subject, fields: fields }) })
-        .then(function (r) { return r.json(); })
+      WelhanAPI.submit({ type: TYPES[subject] || 'other', subject: subject, fields: fields })
         .then(function (j) {
-          if (!j.ok) throw new Error(j.error || 'Failed');
+          if (!j.ok) { var er = new Error(j.error || 'Failed'); er.server = true; throw er; }
           if (ok) { ok.textContent = 'Thank you! Your message has been received. We will contact you soon.'; ok.style.display = 'block'; }
           f.reset();
         })
-        .catch(function () {
-          window.location.href = 'mailto:' + to + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(lines.join('\n'));
-          if (ok) { ok.textContent = 'Opening your email app to send this instead.'; ok.style.display = 'block'; }
-        })
+        .catch(function (er) { if (er.server) { alert(er.message); } else viaEmail(); })
         .then(function () { if (btn) btn.disabled = false; });
     });
   });
 
-
   /* ---------- Admin-editable content (needs PHP; static markup stays as fallback) ---------- */
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function getContent(section, qs) {
-    return fetch('api/content.php?section=' + section + (qs || ''), { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+  function getContent(section) {
+    return window.WelhanAPI ? WelhanAPI.pub().then(function (d) { return d ? (function (o) { o[section] = d[section]; return o; })({}) : null; }) : Promise.resolve(null);
   }
   var offBox = $('.offices');
   if (offBox) getContent('offices').then(function (j) {
@@ -176,12 +175,12 @@
     }).join('');
   });
   var homeBlog = $('.blog .blog-grid');
-  if (homeBlog) getContent('posts', '&limit=3').then(function (j) {
+  if (homeBlog) getContent('posts').then(function (j) {
     if (!j || !j.posts || !j.posts.length) return;
-    homeBlog.innerHTML = j.posts.map(function (p) {
+    homeBlog.innerHTML = j.posts.slice(0, 3).map(function (p) {
       var d = new Date(p.date + 'T00:00:00');
       return '<article class="post in">' + (p.image ? '<div class="thumb"><img src="' + esc(p.image) + '" alt="' + esc(p.title) + '" loading="lazy"></div>' : '') +
-        '<div class="body"><span class="cat">' + esc(p.category) + '</span><h4><a href="post.php?slug=' + encodeURIComponent(p.slug) + '">' + esc(p.title) + '</a></h4><div class="meta"><span>' + d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) + '</span></div></div></article>';
+        '<div class="body"><span class="cat">' + esc(p.category) + '</span><h4><a href="post.html?slug=' + encodeURIComponent(p.slug) + '">' + esc(p.title) + '</a></h4><div class="meta"><span>' + d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) + '</span></div></div></article>';
     }).join('');
   });
   var teamBox = $('#team-section');
